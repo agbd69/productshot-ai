@@ -1,3 +1,4 @@
+import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 /**
@@ -26,4 +27,20 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sentry config wrapper. Only takes effect when SENTRY_AUTH_TOKEN is set
+// during the build (i.e. when you wire up a Sentry project and want source
+// maps uploaded). For Vercel, add the org / project / auth token env vars
+// and these flags activate automatically.
+const sentryBuildOptions = {
+  // Disable telemetry on the build itself; the SDK is what we care about.
+  telemetry: false,
+  // Don't fail the build if Sentry isn't configured.
+  silent: !process.env.SENTRY_AUTH_TOKEN,
+  // Strip framework info from bundle for source map debugging.
+  widenClientFileUpload: true,
+  hideSourceMaps: true,
+};
+
+export default process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(nextConfig, sentryBuildOptions)
+  : nextConfig;
