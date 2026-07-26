@@ -1,90 +1,101 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  buildCreditCheckoutSessionParams,
-  buildSubscriptionCheckoutSessionParams,
-} from "@/lib/server/stripe-checkout";
+import { CREDIT_PACKS } from "@/config/pricing";
 
-describe("buildCreditCheckoutSessionParams", () => {
-  test("requests card, Alipay, and WeChat Pay in Checkout", () => {
-    const params = buildCreditCheckoutSessionParams({
+import { buildCreditPackCheckoutSessionParams } from "@/lib/server/stripe-checkout";
+
+describe("buildCreditPackCheckoutSessionParams", () => {
+  test("starter pack: $30 / 300 credits, mode=payment, kind=credit_pack", () => {
+    const params = buildCreditPackCheckoutSessionParams({
       appUrl: "http://localhost:3000",
+      packId: "starter",
       userId: "user_123",
     });
 
-    expect(params.payment_method_types).toEqual(["card", "alipay", "wechat_pay"]);
-    expect(params.payment_method_options?.wechat_pay).toEqual({ client: "web" });
-  });
-
-  test("labels the credit pack with Chinese wallet payment options", () => {
-    const params = buildCreditCheckoutSessionParams({
-      appUrl: "http://localhost:3000",
-      userId: "user_123",
-    });
-
-    expect(params.line_items?.[0]?.price_data?.product_data?.description).toContain("银行卡");
-    expect(params.line_items?.[0]?.price_data?.product_data?.description).toContain("支付宝");
-    expect(params.line_items?.[0]?.price_data?.product_data?.description).toContain("微信支付");
-  });
-
-  test("marks the session as a one-time credit pack", () => {
-    const params = buildCreditCheckoutSessionParams({
-      appUrl: "http://localhost:3000",
-      userId: "user_123",
-    });
     expect(params.mode).toBe("payment");
     expect(params.metadata?.kind).toBe("credit_pack");
+    expect(params.metadata?.packId).toBe("starter");
+    expect(params.metadata?.credits).toBe("300");
+    expect(params.line_items?.[0]?.price_data?.unit_amount).toBe(3000);
+    expect(params.success_url).toContain("pack=starter");
   });
-});
 
-describe("buildSubscriptionCheckoutSessionParams", () => {
-  test("creates a Pro subscription session with $12.50 / month inline price", () => {
-    const params = buildSubscriptionCheckoutSessionParams({
+  test("pro pack: $99 / 1550 credits (1500 base + 50 bonus)", () => {
+    const params = buildCreditPackCheckoutSessionParams({
       appUrl: "http://localhost:3000",
-      customerEmail: "merchant@example.com",
-      plan: "pro",
+      packId: "pro",
       userId: "user_123",
     });
 
-    expect(params.mode).toBe("subscription");
-    expect(params.metadata?.plan).toBe("pro");
-    expect(params.metadata?.kind).toBe("subscription");
-    expect(params.customer_email).toBe("merchant@example.com");
-    // Falls back to inline price_data when STRIPE_PRO_PRICE_ID is unset
-    expect(params.line_items?.[0]?.price_data?.unit_amount).toBe(1250);
-    expect(params.line_items?.[0]?.price_data?.recurring?.interval).toBe("month");
+    expect(params.metadata?.packId).toBe("pro");
+    expect(params.metadata?.credits).toBe("1550");
+    expect(params.line_items?.[0]?.price_data?.unit_amount).toBe(9900);
   });
 
-  test("creates a Team subscription session with annual billing ($588 / year)", () => {
-    const params = buildSubscriptionCheckoutSessionParams({
+  test("business pack: $199 / 3600 credits (3500 base + 100 bonus)", () => {
+    const params = buildCreditPackCheckoutSessionParams({
       appUrl: "http://localhost:3000",
-      plan: "team",
+      packId: "business",
       userId: "user_456",
     });
 
-    expect(params.mode).toBe("subscription");
-    expect(params.metadata?.plan).toBe("team");
-    expect(params.line_items?.[0]?.price_data?.recurring?.interval).toBe("year");
-    expect(params.line_items?.[0]?.price_data?.unit_amount).toBe(58800);
+    expect(params.metadata?.packId).toBe("business");
+    expect(params.metadata?.credits).toBe("3600");
+    expect(params.line_items?.[0]?.price_data?.unit_amount).toBe(19900);
   });
 
-  test("uses a Stripe Price ID when the env is set", () => {
-    const original = process.env.STRIPE_PRO_PRICE_ID;
-    process.env.STRIPE_PRO_PRICE_ID = "price_test_abc123";
-    try {
-      const params = buildSubscriptionCheckoutSessionParams({
+  test("agency pack: $399 / 8200 credits (8000 base + 200 bonus)", () => {
+    const params = buildCreditPackCheckoutSessionParams({
+      appUrl: "http://localhost:3000",
+      packId: "agency",
+      userId: "user_789",
+    });
+
+    expect(params.metadata?.packId).toBe("agency");
+    expect(params.metadata?.credits).toBe("8200");
+    expect(params.line_items?.[0]?.price_data?.unit_amount).toBe(39900);
+  });
+
+  test("requests card, Alipay, and WeChat Pay for every pack", () => {
+    for (const packId of Object.keys(CREDIT_PACKS) as Array<keyof typeof CREDIT_PACKS>) {
+      const params = buildCreditPackCheckoutSessionParams({
         appUrl: "http://localhost:3000",
-        plan: "pro",
+        packId,
         userId: "user_123",
       });
-      expect(params.line_items?.[0]?.price).toBe("price_test_abc123");
+      expect(params.payment_method_types).toEqual(["card", "alipay", "wechat_pay"]);
+      expect(params.payment_method_options?.wechat_pay).toEqual({ client: "web" });
+    }
+  });
+
+  test("uses a Stripe Price ID from env when set, falling back to inline price_data", () => {
+    const original = process.env.STRIPE_PRO_PACK_PRICE_ID;
+    process.env.STRIPE_PRO_PACK_PRICE_ID = "price_test_xyz789";
+    try {
+      const params = buildCreditPackCheckoutSessionParams({
+        appUrl: "http://localhost:3000",
+        packId: "pro",
+        userId: "user_123",
+      });
+      expect(params.line_items?.[0]?.price).toBe("price_test_xyz789");
       expect(params.line_items?.[0]?.price_data).toBeUndefined();
     } finally {
       if (original === undefined) {
-        delete process.env.STRIPE_PRO_PRICE_ID;
+        delete process.env.STRIPE_PRO_PACK_PRICE_ID;
       } else {
-        process.env.STRIPE_PRO_PRICE_ID = original;
+        process.env.STRIPE_PRO_PACK_PRICE_ID = original;
       }
     }
+  });
+
+  test("success_url includes the pack id for post-purchase analytics", () => {
+    const params = buildCreditPackCheckoutSessionParams({
+      appUrl: "https://productshot.ai",
+      packId: "business",
+      userId: "user_123",
+    });
+    expect(params.success_url).toBe(
+      "https://productshot.ai/billing?checkout=success&pack=business",
+    );
   });
 });

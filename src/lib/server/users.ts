@@ -1,6 +1,6 @@
 import type { User } from "@clerk/nextjs/server";
 
-import { PRICING_PLANS, type PricingPlanId } from "@/config/pricing";
+import { PRICING_PLANS, type QualityTier, maxQualityTier } from "@/config/pricing";
 import { getSupabaseAdmin } from "@/lib/server/supabase";
 
 export type AppUser = {
@@ -8,13 +8,21 @@ export type AppUser = {
   credits: number;
   email: string | null;
   id: string;
-  plan: PricingPlanId;
+  plan: "free"; // legacy field; new code reads `quality_tier`
+  quality_tier: QualityTier;
   current_period_end: string | null;
   stripe_customer_id: string | null;
 };
 
 /**
- * First sign-in: create a row with the Free plan and grant 30 credits.
+ * Columns selected for AppUser. Kept as a constant so list-shape and
+ * single-row-shape can't drift.
+ */
+const APP_USER_COLUMNS =
+  "id, clerk_user_id, email, plan, quality_tier, credits, current_period_end, stripe_customer_id";
+
+/**
+ * First sign-in: create a row with the Free tier and grant 30 credits.
  * Returns the user (existing or freshly created).
  */
 export async function ensureAppUser(clerkUser: User): Promise<AppUser> {
@@ -23,24 +31,25 @@ export async function ensureAppUser(clerkUser: User): Promise<AppUser> {
 
   const { data: existing, error: selectError } = await supabase
     .from("users")
-    .select("id, clerk_user_id, email, plan, credits, current_period_end, stripe_customer_id")
+    .select(APP_USER_COLUMNS)
     .eq("clerk_user_id", clerkUser.id)
     .maybeSingle();
 
   if (selectError) throw selectError;
   if (existing) return existing as AppUser;
 
-  // First-time signup. The Free plan grants 30 credits immediately.
+  // First-time signup. The Free tier grants 30 credits once (no monthly
+  // refill — pure credit model, no subscription).
   const { data, error } = await supabase
     .from("users")
     .insert({
       clerk_user_id: clerkUser.id,
-      credits: PRICING_PLANS.free.monthlyCredits,
-      current_period_end: nextMonthlyResetIso(),
+      credits: PRICING_PLANS.free.signupCredits,
       email,
       plan: "free",
+      quality_tier: "standard",
     })
-    .select("id, clerk_user_id, email, plan, credits, current_period_end, stripe_customer_id")
+    .select(APP_USER_COLUMNS)
     .single();
 
   if (error) throw error;
@@ -64,76 +73,65 @@ export async function addCredits(userId: string, credits: number) {
 }
 
 /**
- * Refill the user's monthly credit allowance if their current billing period
- * has ended. Called lazily on every generation so we don't need a separate
- * cron job. Safe to call multiple times per period — it's a no-op when
- * current_period_end is still in the future.
- *
- * Returns the post-refill credit balance.
+ * Apply a credit pack purchase: add the (credits + bonusCredits) to the
+ * user's balance and bump their quality_tier to the higher of the current
+ * tier and the pack's tier. Credits never expire; tier only goes up.
  */
-export async function refillCreditsIfNeeded(userId: string, now = new Date()): Promise<number> {
+export async function applyCreditPackPurchase(
+  userId: string,
+  pack: { credits: number; bonusCredits: number; qualityTier: QualityTier },
+) {
   const supabase = getSupabaseAdmin();
   const { data: user, error: readError } = await supabase
     .from("users")
-    .select("plan, credits, current_period_end")
+    .select("credits, quality_tier")
     .eq("id", userId)
     .single();
-
   if (readError) throw readError;
 
-  const plan = (user.plan ?? "free") as PricingPlanId;
-  const allowance = PRICING_PLANS[plan].monthlyCredits;
-  const periodEnd = user.current_period_end ? new Date(user.current_period_end) : null;
+  const totalCredits = pack.credits + pack.bonusCredits;
+  const newTier = maxQualityTier(
+    (user.quality_tier as QualityTier | null) ?? "standard",
+    pack.qualityTier,
+  );
 
-  // No period scheduled (e.g. one-time pack users): only refill if plan is free
-  // and credits have been exhausted for a while.
-  if (!periodEnd) {
-    if (plan === "free" && Number(user.credits) <= 0) {
-      const nextEnd = nextMonthlyResetIso(now);
-      await supabase
-        .from("users")
-        .update({
-          credits: allowance,
-          current_period_end: nextEnd,
-          updated_at: now.toISOString(),
-        })
-        .eq("id", userId);
-      return allowance;
-    }
-    return Number(user.credits);
-  }
-
-  // Period not yet ended: do nothing.
-  if (periodEnd.getTime() > now.getTime()) {
-    return Number(user.credits);
-  }
-
-  // Period ended: refill to the plan's allowance and roll the period end.
-  const nextEnd = nextEndFor(plan, now);
   const { error } = await supabase
     .from("users")
     .update({
-      credits: allowance,
-      current_period_end: nextEnd,
-      updated_at: now.toISOString(),
+      credits: Number(user.credits) + totalCredits,
+      quality_tier: newTier,
+      updated_at: new Date().toISOString(),
     })
     .eq("id", userId);
 
   if (error) throw error;
-  return allowance;
+
+  return { newCredits: Number(user.credits) + totalCredits, newTier };
+}
+
+/**
+ * No-op stub kept for back-compat with the old monthly-subscription model.
+ * Pure credit model: credits are added at purchase time and never refilled.
+ * Safe to remove once all callers are updated.
+ */
+export async function refillCreditsIfNeeded(userId: string): Promise<number> {
+  const supabase = getSupabaseAdmin();
+  const { data: user, error } = await supabase
+    .from("users")
+    .select("credits")
+    .eq("id", userId)
+    .single();
+  if (error) throw error;
+  return Number(user.credits);
 }
 
 export async function spendCredits(userId: string, credits: number) {
-  // Always try to refill first; if the period has rolled over the user
-  // gets a fresh balance before we deduct.
-  await refillCreditsIfNeeded(userId);
-
   const supabase = getSupabaseAdmin();
   const { data: user, error: readError } = await supabase.from("users").select("credits").eq("id", userId).single();
   if (readError) throw readError;
 
   if (Number(user.credits) < credits) {
-    throw new Error("额度不足，请升级 Pro / Team 或购买 credits 包后继续。");
+    throw new Error("额度不足，请购买 credits 包后继续。");
   }
 
   const { error } = await supabase
@@ -147,9 +145,14 @@ export async function spendCredits(userId: string, credits: number) {
   if (error) throw error;
 }
 
+/**
+ * Update the user's plan + customer id. Kept for back-compat with the
+ * legacy subscription webhook handlers; the new credit-pack path uses
+ * `applyCreditPackPurchase` instead.
+ */
 export async function setUserPlan(
   userId: string,
-  plan: PricingPlanId,
+  plan: "free" | "pro" | "team",
   options: { currentPeriodEnd?: Date | null; stripeCustomerId?: string | null } = {},
 ) {
   const supabase = getSupabaseAdmin();
@@ -168,8 +171,7 @@ export async function setUserPlan(
 }
 
 /**
- * Return the next "monthly reset" timestamp — 30 days from `now`, at 00:00 UTC.
- * Used for Free-tier users to schedule their next free refill.
+ * Unused by the new credit-only flow but kept for legacy callers/tests.
  */
 export function nextMonthlyResetIso(now = new Date()): string {
   const d = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -177,11 +179,11 @@ export function nextMonthlyResetIso(now = new Date()): string {
   return d.toISOString();
 }
 
-function nextEndFor(plan: PricingPlanId, now: Date): string {
-  // Pro rolls monthly, Team rolls yearly. Either way we just push the
-  // timestamp by the interval length and normalize to UTC midnight.
-  const intervalDays = plan === "team" ? 365 : 30;
-  const d = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
-  d.setUTCHours(0, 0, 0, 0);
-  return d.toISOString();
+/**
+ * Unused by the new credit-only flow. Subscription code paths that
+ * referenced this are kept in webhook.ts for legacy events but the
+ * function is no longer called.
+ */
+export function _legacyNextEndFor(_plan: "free" | "pro" | "team", _now: Date): string {
+  return nextMonthlyResetIso(_now);
 }

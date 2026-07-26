@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
-import { CREDIT_PACK, PRICING_PLANS, type PricingPlanId } from "@/config/pricing";
+import {
+  CREDIT_PACKS,
+  getCreditPack,
+  type CreditPackId,
+  type QualityTier,
+} from "@/config/pricing";
 import { requireEnv } from "@/lib/server/env";
 import { getStripe } from "@/lib/server/stripe";
 import {
@@ -10,16 +15,17 @@ import {
   upsertSubscriptionFromStripe,
 } from "@/lib/server/subscriptions";
 import { getSupabaseAdmin } from "@/lib/server/supabase";
-import { addCredits, setUserPlan } from "@/lib/server/users";
+import { addCredits, applyCreditPackPurchase, setUserPlan } from "@/lib/server/users";
 
 /**
  * POST /api/stripe/webhook
  *
- * Handles three flavours of event:
- *   1. checkout.session.completed (mode=payment) → one-time credit pack
- *   2. customer.subscription.created / .updated → upsert subscription, set plan
- *   3. invoice.payment_succeeded → monthly credit refill on the user's plan
- *   4. customer.subscription.deleted → downgrade user back to free
+ * Handles two flavours of event:
+ *   1. checkout.session.completed (mode=payment, kind=credit_pack)
+ *      → resolve the pack from metadata, grant credits, bump quality_tier
+ *   2. Legacy subscription events (customer.subscription.*, invoice.payment_succeeded)
+ *      → kept for any in-flight Pro/Team subscriptions from before the
+ *      pivot; new subscriptions are not sold anymore.
  */
 export async function POST(request: Request) {
   const stripe = getStripe();
@@ -44,13 +50,13 @@ export async function POST(request: Request) {
         break;
       case "customer.subscription.created":
       case "customer.subscription.updated":
-        await handleSubscriptionUpsert(event.data.object);
+        await handleLegacySubscriptionUpsert(event.data.object);
         break;
       case "customer.subscription.deleted":
-        await handleSubscriptionDeleted(event.data.object);
+        await handleLegacySubscriptionDeleted(event.data.object);
         break;
       case "invoice.payment_succeeded":
-        await handleInvoicePaid(event.data.object);
+        await handleLegacyInvoicePaid(event.data.object);
         break;
       default:
         // Ignored event type — Stripe sends a lot, we only care about these.
@@ -68,14 +74,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const userId = session.metadata?.userId;
   if (!userId) return;
 
-  // Subscription checkouts are handled by customer.subscription.* events;
-  // we only deal with one-time credit packs here.
+  // Legacy subscription checkouts — skip; the subscription.* events handle
+  // those. New checkouts are all `mode=payment` credit packs.
   if (session.metadata?.kind === "subscription" || session.mode === "subscription") {
     return;
   }
 
+  // Idempotency: skip if we already recorded this session.
   if (!session.id) return;
-
   const supabase = getSupabaseAdmin();
   const { data: existing, error: readError } = await supabase
     .from("payments")
@@ -86,11 +92,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (readError) {
     throw new Error(`payments read: ${readError.message}`);
   }
-
   if (existing) return;
 
+  // Resolve the pack from metadata. If packId is missing (e.g. legacy
+  // $9.90 pack), fall back to the starter pack.
+  const packId = (session.metadata?.packId ?? "starter") as CreditPackId;
+  const pack = getCreditPack(packId) ?? CREDIT_PACKS.starter;
+
   const { error: insertError } = await supabase.from("payments").insert({
-    amount: CREDIT_PACK.priceCents,
+    amount: pack.priceCents,
     status: "completed",
     stripe_session_id: session.id,
     user_id: userId,
@@ -100,10 +110,20 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     throw new Error(`payments insert: ${insertError.message}`);
   }
 
-  await addCredits(userId, CREDIT_PACK.credits);
+  await applyCreditPackPurchase(userId, {
+    bonusCredits: pack.bonusCredits,
+    credits: pack.credits,
+    qualityTier: pack.qualityTier as QualityTier,
+  });
 }
 
-async function handleSubscriptionUpsert(subscription: Stripe.Subscription) {
+// ============================================================================
+// Legacy subscription handlers — kept for any in-flight Pro/Team subs from
+// before the pivot. Once those lapse and the subscriptions table is empty,
+// these can be removed.
+// ============================================================================
+
+async function handleLegacySubscriptionUpsert(subscription: Stripe.Subscription) {
   const planMeta = await resolvePlanFromSubscription(subscription);
   if (!planMeta) return;
 
@@ -112,38 +132,42 @@ async function handleSubscriptionUpsert(subscription: Stripe.Subscription) {
 
   if (!userId) {
     userId = await findUserIdByCustomerId(customerId);
-    if (!userId) {
-      // Subscription was created via a flow that didn't bind a user (e.g.
-      // Stripe dashboard test). Skip — admin can repair manually.
-      return;
-    }
+    if (!userId) return;
   }
 
   const { periodEnd } = await upsertSubscriptionFromStripe(userId, subscription, planMeta.plan);
 
-  // Sync the user row: plan + period end + customer id. Only flip the plan
-  // when the subscription is actually usable.
+  // For legacy Pro/Team, mirror the plan into quality_tier so the new
+  // image-provider routing picks up the right output size.
+  const tierFromPlan = planMeta.plan === "team" ? "agency" : planMeta.plan === "pro" ? "pro" : "standard";
   const activeStatuses: Stripe.Subscription.Status[] = ["active", "trialing", "past_due"];
-  const nextPlan: PricingPlanId = activeStatuses.includes(subscription.status) ? planMeta.plan : "free";
+  const isActive = activeStatuses.includes(subscription.status);
 
-  await setUserPlan(userId, nextPlan, {
-    currentPeriodEnd: nextPlan === "free" ? null : new Date(periodEnd),
+  await setUserPlan(userId, isActive ? planMeta.plan : "free", {
+    currentPeriodEnd: isActive ? new Date(periodEnd) : null,
     stripeCustomerId: customerId,
   });
+
+  if (isActive) {
+    const supabase = getSupabaseAdmin();
+    await supabase
+      .from("users")
+      .update({ quality_tier: tierFromPlan, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+  }
 }
 
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+async function handleLegacySubscriptionDeleted(subscription: Stripe.Subscription) {
   const existing = await getSubscriptionByStripeId(subscription.id);
   if (!existing) return;
   await setUserPlan(existing.user_id, "free", {
     currentPeriodEnd: null,
   });
+  // Don't downgrade quality_tier — once earned, it stays.
 }
 
-async function handleInvoicePaid(invoice: Stripe.Invoice) {
-  // Only refill on subscription invoices (one-time pack invoices are handled
-  // in handleCheckoutCompleted).
-  // Stripe v22 moved the subscription reference onto `parent.subscription_details`.
+async function handleLegacyInvoicePaid(invoice: Stripe.Invoice) {
+  // Skip one-time pack invoices (handled in handleCheckoutCompleted).
   const parentSubscription = invoice.parent?.subscription_details?.subscription;
   if (!parentSubscription) return;
   const subscriptionId = typeof parentSubscription === "string" ? parentSubscription : parentSubscription.id;
@@ -152,33 +176,19 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   if (!existing) return;
   if (existing.status === "canceled") return;
 
-  const allowance = PRICING_PLANS[existing.plan as PricingPlanId].monthlyCredits;
-  // On the first paid invoice we set the plan and full allowance. On
-  // renewals we top up to the allowance. `setUserPlan` here also rolls
-  // the period end forward via the subscription record.
-  await addCredits(existing.user_id, allowance);
-
-  // Reflect the new period in the users table. The Stripe subscription
-  // record is the source of truth, but we keep the user row in sync so
-  // the lazy-refill check in spendCredits can work without a join.
-  await setUserPlan(existing.user_id, existing.plan as PricingPlanId, {
+  // Legacy: refill 200 credits for Pro, 2000 for Team. Kept for back-compat.
+  const allowance = existing.plan === "team" ? 2000 : existing.plan === "pro" ? 200 : 0;
+  if (allowance > 0) {
+    await addCredits(existing.user_id, allowance);
+  }
+  await setUserPlan(existing.user_id, existing.plan as "pro" | "team", {
     currentPeriodEnd: new Date(existing.current_period_end),
   });
 }
 
-/**
- * The plan id is written into Checkout Session metadata when the user
- * starts a subscription. We propagate it onto the Subscription object
- * by reading the parent session. As a fallback, infer from the
- * subscription's first price id (Pro / Team Stripe Price IDs in env).
- */
 async function resolvePlanFromSubscription(
   subscription: Stripe.Subscription,
-): Promise<{ plan: PricingPlanId; userId: string | null } | null> {
-  // Best path: subscription has metadata.plan + metadata.userId (we set
-  // these in buildSubscriptionCheckoutSessionParams via the Checkout
-  // Session, but Stripe does not always propagate to the Subscription
-  // object; depends on the API version and the Checkout configuration).
+): Promise<{ plan: "pro" | "team"; userId: string | null } | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anySub = subscription as any;
   const meta = anySub.metadata as Record<string, string | undefined> | undefined;
@@ -186,7 +196,6 @@ async function resolvePlanFromSubscription(
     return { plan: meta.plan, userId: meta.userId ?? null };
   }
 
-  // Fallback: look up the parent Checkout Session to recover the metadata.
   const checkoutSessionId: string | undefined = anySub.checkout_session_id ?? anySub.latest_invoice?.checkout_session?.id;
   if (!checkoutSessionId) return null;
 

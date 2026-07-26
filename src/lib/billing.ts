@@ -1,38 +1,80 @@
-import { CREDIT_PACK, GENERATION_COST, PRICING_PLANS, type PricingPlanId } from "@/config/pricing";
+import {
+  CREDIT_PACK_LIST,
+  GENERATION_COST,
+  type CreditPack,
+  type CreditPackId,
+  type PricingPlanId,
+} from "@/config/pricing";
 
 /**
- * Post-pivot billing helpers.
+ * Pure credit-based billing helpers (2026-07-26).
  *
- * The user can be on a subscription (Free / Pro / Team) or have bought a
- * legacy one-time pack. The summary surfaces both — what's their plan and
- * what does one pack / one month get them in terms of outputs.
+ * No subscription. Users have:
+ *   - A credit balance (integer)
+ *   - A quality tier (standard / pro / business / agency)
+ *
+ * They buy one of 4 credit packs. Credits never expire; tier only goes up.
  */
 
+/**
+ * Format a price given in USD cents as a "$X.XX" string, or "Free" for 0.
+ */
 export function formatUsdFromCents(cents: number) {
   if (cents === 0) return "Free";
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-export type ProductSceneSummary = {
+/**
+ * For a given pack, how many images of each scene can it produce?
+ * Useful for the pricing table "X 张白底 / Y 张模特" copy.
+ */
+export type PackCapacity = {
+  id: CreditPackId;
+  name: string;
+  badge: string;
+  totalCredits: number;
+  bonusCredits: number;
+  price: string;
+  perCredit: string;
+  qualityTier: CreditPack["qualityTier"];
+  outputSize: number;
+  features: readonly string[];
   whiteBgOutputs: number;
   lifestyleOutputs: number;
   festivalOutputs: number;
   modelWearingOutputs: number;
   detailPageOutputs: number;
-  price: string;
 };
 
-export function getCreditPackSummary(): ProductSceneSummary {
+export function getPackCapacity(pack: CreditPack): PackCapacity {
+  const total = pack.credits + pack.bonusCredits;
   return {
-    whiteBgOutputs: Math.floor(CREDIT_PACK.credits / GENERATION_COST["white-bg"]),
-    lifestyleOutputs: Math.floor(CREDIT_PACK.credits / GENERATION_COST.lifestyle),
-    festivalOutputs: Math.floor(CREDIT_PACK.credits / GENERATION_COST.festival),
-    modelWearingOutputs: Math.floor(CREDIT_PACK.credits / GENERATION_COST["model-wearing"]),
-    detailPageOutputs: Math.floor(CREDIT_PACK.credits / GENERATION_COST["detail-page"]),
-    price: formatUsdFromCents(CREDIT_PACK.priceCents),
+    badge: pack.badge,
+    detailPageOutputs: Math.floor(total / GENERATION_COST["detail-page"]),
+    features: pack.features,
+    festivalOutputs: Math.floor(total / GENERATION_COST.festival),
+    id: pack.id,
+    lifestyleOutputs: Math.floor(total / GENERATION_COST.lifestyle),
+    modelWearingOutputs: Math.floor(total / GENERATION_COST["model-wearing"]),
+    name: pack.name,
+    outputSize: pack.outputSize,
+    perCredit: formatUsdFromCents(pack.priceCents) + " / " + total + " credits",
+    price: formatUsdFromCents(pack.priceCents),
+    totalCredits: total,
+    bonusCredits: pack.bonusCredits,
+    qualityTier: pack.qualityTier,
+    whiteBgOutputs: Math.floor(total / GENERATION_COST["white-bg"]),
   };
 }
 
+export function getAllPackCapacities(): PackCapacity[] {
+  return CREDIT_PACK_LIST.map(getPackCapacity);
+}
+
+/**
+ * Legacy type kept for any callers that haven't migrated yet. The new
+ * pricing page should use `getAllPackCapacities` instead.
+ */
 export type PlanSummary = {
   id: PricingPlanId;
   name: string;
@@ -43,32 +85,22 @@ export type PlanSummary = {
 };
 
 /**
- * Summarise a single plan for the pricing table. Pulled from PRICING_PLANS
- * so the marketing copy and the Stripe checkout stay in lockstep.
+ * Legacy plan summary — returns the single "free" entry. Kept so any
+ * imports from the old pricing page don't immediately break during the
+ * migration. Safe to remove once the billing UI is fully rewritten.
  */
-export function getPlanSummary(plan: PricingPlanId): PlanSummary {
-  const cfg = PRICING_PLANS[plan];
-  const priceLabel =
-    plan === "team"
-      ? `${formatUsdFromCents("annualPriceCents" in cfg ? (cfg.annualPriceCents ?? cfg.priceCents) : cfg.priceCents)} / year`
-      : plan === "free"
-        ? "Free / month"
-        : `${formatUsdFromCents(cfg.priceCents)} / month`;
-
-  return {
-    badge: cfg.badge,
-    features: cfg.features,
-    id: plan,
-    monthlyCredits: cfg.monthlyCredits,
-    name: cfg.name,
-    priceLabel,
-  };
-}
-
 export function getAllPlanSummaries(): PlanSummary[] {
-  return (Object.keys(PRICING_PLANS) as PricingPlanId[]).map(getPlanSummary);
+  return [
+    {
+      badge: "注册即得",
+      features: ["30 credits 一次性体验", "全部 5 个商品图场景", "标准 1024×1024 输出"],
+      id: "free",
+      monthlyCredits: 30,
+      name: "Free",
+      priceLabel: "Free",
+    },
+  ];
 }
 
-// Backwards-compatible re-export (no-op) kept for any test that imports
-// GENERATION_COST from this module. Safe to remove once all callers point
-// directly at @/config/pricing.
+// Re-export so existing test imports keep working.
+export { GENERATION_COST };

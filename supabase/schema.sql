@@ -38,6 +38,18 @@ alter table public.users
 alter table public.users
   add column if not exists stripe_customer_id text;
 
+-- quality_tier: highest credit pack tier the user has bought (or 'standard'
+-- for free users). Drives the max output size and feature gating in
+-- image-provider.ts. Added 2026-07-26 with the pure-credit pricing model.
+alter table public.users
+  add column if not exists quality_tier text not null default 'standard';
+
+alter table public.users
+  drop constraint if exists users_quality_tier_check;
+alter table public.users
+  add constraint users_quality_tier_check
+  check (quality_tier in ('standard', 'pro', 'business', 'agency'));
+
 -- ----------------------------------------------------------------------------
 -- generations
 -- ----------------------------------------------------------------------------

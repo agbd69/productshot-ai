@@ -2,7 +2,7 @@ import { ArrowRight, Check, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { PRICING_PLANS } from "@/config/pricing";
+import { CREDIT_PACKS } from "@/config/pricing";
 
 const scenes = [
   "纯白底主图",
@@ -13,18 +13,24 @@ const scenes = [
 ];
 const platformFormats = ["Amazon 纯白底", "Shopify 1:1", "TikTok 9:16", "独立站 4:3", "30s 短视频"];
 const planDisplay = [
-  { badge: "注册即得", credits: `${PRICING_PLANS.free.monthlyCredits} credits / month`, name: PRICING_PLANS.free.name, price: "Free" },
+  { badge: "起步装", credits: "300 credits", name: CREDIT_PACKS.starter.name, price: "$30" },
   {
     badge: "最受欢迎",
-    credits: `${PRICING_PLANS.pro.monthlyCredits} credits / month`,
-    name: PRICING_PLANS.pro.name,
-    price: "$12.50 / month",
+    credits: "1550 credits（含 50 赠送）",
+    name: CREDIT_PACKS.pro.name,
+    price: "$99",
   },
   {
-    badge: "适合代运营 / 团队",
-    credits: `${PRICING_PLANS.team.monthlyCredits} credits / month`,
-    name: PRICING_PLANS.team.name,
-    price: "$588 / year",
+    badge: "团队装",
+    credits: "3600 credits（含 100 赠送）",
+    name: CREDIT_PACKS.business.name,
+    price: "$199",
+  },
+  {
+    badge: "代理商",
+    credits: "8200 credits（含 200 赠送）",
+    name: CREDIT_PACKS.agency.name,
+    price: "$399",
   },
 ];
 
@@ -95,8 +101,9 @@ export default function Home() {
           </div>
         </section>
         <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8" id="pricing">
-          <h2 className="text-3xl font-semibold text-white">按用量付费，不按张数</h2>
-          <div className="mt-8 grid gap-4 lg:grid-cols-3">
+          <h2 className="text-3xl font-semibold text-white">买多少用多少，永不过期</h2>
+          <p className="mt-3 max-w-2xl text-slate-300">4 档积分包，按需选购。一次性付费，单张图成本最低到 $0.049。</p>
+          <div className="mt-8 grid gap-4 lg:grid-cols-4">
             {planDisplay.map((plan) => (
               <Card className="p-5" key={plan.name}>
                 <p className="text-xs uppercase tracking-[0.2em] text-teal-100">{plan.badge}</p>
@@ -107,7 +114,7 @@ export default function Home() {
                   <Check className="size-4 shrink-0 text-teal-200" /> All 5 scenes + every platform spec
                 </p>
                 <p className="mt-2 flex gap-2 text-sm text-slate-300">
-                  <Check className="size-4 shrink-0 text-teal-200" /> {plan.name === "Pro" ? "HD resolution + priority queue" : plan.name === "Team" ? "Team workspace + dedicated support" : "Standard resolution"}
+                  <Check className="size-4 shrink-0 text-teal-200" /> No subscription · 永不过期
                 </p>
               </Card>
             ))}
