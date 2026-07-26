@@ -2,6 +2,7 @@ import { ArrowRight, Check, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PRICING_PLANS } from "@/config/pricing";
 
 const scenes = [
   "纯白底主图",
@@ -11,11 +12,20 @@ const scenes = [
   "详情页多角度",
 ];
 const platformFormats = ["Amazon 纯白底", "Shopify 1:1", "TikTok 9:16", "独立站 4:3", "30s 短视频"];
-const plans = [
-  ["免费体验", "$0", "30 张/月"],
-  ["Pro 月卡", "$12.50", "¥89，500 张"],
-  ["团队版", "$82/年", "¥588，5000 张"],
-  ["API", "定制", "B 端嵌入"],
+const planDisplay = [
+  { badge: "注册即得", credits: `${PRICING_PLANS.free.monthlyCredits} credits / month`, name: PRICING_PLANS.free.name, price: "Free" },
+  {
+    badge: "最受欢迎",
+    credits: `${PRICING_PLANS.pro.monthlyCredits} credits / month`,
+    name: PRICING_PLANS.pro.name,
+    price: "$12.50 / month",
+  },
+  {
+    badge: "适合代运营 / 团队",
+    credits: `${PRICING_PLANS.team.monthlyCredits} credits / month`,
+    name: PRICING_PLANS.team.name,
+    price: "$588 / year",
+  },
 ];
 
 export default function Home() {
@@ -86,21 +96,28 @@ export default function Home() {
         </section>
         <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8" id="pricing">
           <h2 className="text-3xl font-semibold text-white">按用量付费，不按张数</h2>
-          <div className="mt-8 grid gap-4 lg:grid-cols-4">
-            {plans.map(([name, price, credits]) => (
-              <Card className="p-5" key={name}>
-                <h3 className="text-xl font-semibold text-white">{name}</h3>
-                <p className="mt-4 text-4xl font-semibold text-white">{price}</p>
-                <p className="mt-3 text-teal-100">{credits}</p>
-                <p className="mt-5 flex gap-2 text-sm text-slate-300"><Check className="size-4 text-teal-200" /> 全场景 + 全平台规格</p>
+          <div className="mt-8 grid gap-4 lg:grid-cols-3">
+            {planDisplay.map((plan) => (
+              <Card className="p-5" key={plan.name}>
+                <p className="text-xs uppercase tracking-[0.2em] text-teal-100">{plan.badge}</p>
+                <h3 className="mt-3 text-xl font-semibold text-white">{plan.name}</h3>
+                <p className="mt-4 text-4xl font-semibold text-white">{plan.price}</p>
+                <p className="mt-3 text-teal-100">{plan.credits}</p>
+                <p className="mt-5 flex gap-2 text-sm text-slate-300">
+                  <Check className="size-4 shrink-0 text-teal-200" /> All 5 scenes + every platform spec
+                </p>
+                <p className="mt-2 flex gap-2 text-sm text-slate-300">
+                  <Check className="size-4 shrink-0 text-teal-200" /> {plan.name === "Pro" ? "HD resolution + priority queue" : plan.name === "Team" ? "Team workspace + dedicated support" : "Standard resolution"}
+                </p>
               </Card>
             ))}
           </div>
         </section>
       </main>
       <footer className="border-t border-white/10 px-4 py-8 text-center text-sm text-slate-400">
-        <a className="mx-3 hover:text-white" href="/privacy">隐私政策</a>
-        <a className="mx-3 hover:text-white" href="/terms">使用条款</a>
+        <a className="mx-3 hover:text-white" href="/privacy">Privacy</a>
+        <a className="mx-3 hover:text-white" href="/terms">Terms</a>
+        <a className="mx-3 hover:text-white" href="https://github.com/agbd69/productshot-ai">GitHub</a>
       </footer>
     </>
   );
