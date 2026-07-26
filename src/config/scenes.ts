@@ -116,8 +116,13 @@ const scenePrompts: Record<ProductSceneId, string> = {
 - Add visible seasonal cues around the product (subtle snowflakes for winter
   sale, red and gold accents for Chinese New Year, gift boxes and ribbons
   for Black Friday, hearts for Valentine's) but the product remains the hero.
-- Reserve a clean promo overlay zone in the top-left or top-right corner for
-  the merchant's own text — do NOT render any text inside the image.
+- Leave a clean EMPTY rectangle in the top-left corner of the image. The
+  rectangle should be plain (same background color), with absolutely NO
+  text, NO characters, NO letters, NO glyphs, NO logos inside or around it.
+  The merchant will add their own text in post-production. Do not write
+  "PROMO TEXT" or any placeholder text — emit a blank region.
+- The product's own brand text (printed on the product itself) MAY be
+  visible. No other text of any kind.
 - Mood is festive but not tacky.
 - Background can carry a soft gradient (warm gold for Lunar New Year, deep
   red for Valentine's, charcoal for Black Friday).
@@ -127,11 +132,18 @@ const scenePrompts: Record<ProductSceneId, string> = {
 
 - Model is diverse across the batch (vary age, ethnicity, body type, gender
   presentation).
+- The model is a chest-up portrait; only head, shoulders, arms, and torso
+  are visible. No waist-down body parts in the frame.
+- The model HOLDS the product with BOTH HANDS in front of their chest. Both
+  hands must be on the product. There is no free hand for any other object.
 - Fit and proportion of the product on the model must be realistic — no
   warped seams, no distorted fabric, no floating accessories.
 - Model's pose is natural and approachable (not stiff mannequin).
 - Product colors and material are true to the reference.
 - Background is a clean studio or a softly-lit lifestyle setting; never busy.
+- ABSOLUTELY NO additional props, papers, books, letters, documents, or
+  hand-held objects beyond the product itself. Nothing in the model's
+  hands other than the product.
 - The product is the focal point — the model exists to show fit and scale.`,
 
   "detail-page": `Re-stage the product from the reference image as a coherent multi-angle batch for the product detail page.

@@ -31,11 +31,13 @@ describe("getScenePrompt", () => {
     expect(prompt).toContain("4:3 (landscape)");
   });
 
-  test("festival prompt reserves a clean promo overlay zone and forbids in-image text", () => {
+  test("festival prompt leaves a clean empty rectangle (no hallucinated text)", () => {
     const prompt = getScenePrompt("festival", 2);
     expect(prompt).toContain("seasonal");
-    expect(prompt).toContain("promo overlay zone");
-    expect(prompt).toMatch(/do not render any text|no text/i);
+    expect(prompt).toMatch(/empty (rectangle|region|zone)/i);
+    // The product's own printed brand text is allowed, but no other text.
+    expect(prompt).toMatch(/no text|no characters|no letters/i);
+    expect(prompt).not.toMatch(/reserve a clean promo overlay zone/i);
   });
 
   test("model-wearing prompt re-stages the product on an AI model with brand-true colors", () => {
