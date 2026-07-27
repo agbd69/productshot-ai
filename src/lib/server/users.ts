@@ -109,22 +109,6 @@ export async function applyCreditPackPurchase(
   return { newCredits: Number(user.credits) + totalCredits, newTier };
 }
 
-/**
- * No-op stub kept for back-compat with the old monthly-subscription model.
- * Pure credit model: credits are added at purchase time and never refilled.
- * Safe to remove once all callers are updated.
- */
-export async function refillCreditsIfNeeded(userId: string): Promise<number> {
-  const supabase = getSupabaseAdmin();
-  const { data: user, error } = await supabase
-    .from("users")
-    .select("credits")
-    .eq("id", userId)
-    .single();
-  if (error) throw error;
-  return Number(user.credits);
-}
-
 export async function spendCredits(userId: string, credits: number) {
   const supabase = getSupabaseAdmin();
   const { data: user, error: readError } = await supabase.from("users").select("credits").eq("id", userId).single();

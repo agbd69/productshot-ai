@@ -1,12 +1,12 @@
 import type { MvpSceneId } from "@/config/scenes";
+import type { QualityTier } from "@/config/pricing";
 import type { GenerationMetadata } from "@/lib/server/generations";
 import { removeBackgroundFromUrl } from "@/lib/server/remove-bg";
 import { generateProductImagesWithFal } from "@/lib/server/fal";
 
 /**
- * Post-pivot: we only ship one image provider (fal.ai's Flux Pro v1.1).
- * The function is kept open for a future second provider, but for now the
- * `getImageProviderName` helper is a vestigial switch that always returns "fal".
+ * Image provider abstraction. Single provider today (fal.ai Flux Pro Kontext);
+ * `getImageProviderName` is kept as a vestigial switch for future A/B testing.
  */
 export type ImageProviderName = "fal";
 
@@ -14,12 +14,13 @@ export type GenerateProductImagesInput = {
   imageUrls: string[];
   metadata?: GenerationMetadata;
   outputCount: number;
+  qualityTier: QualityTier;
   scene: MvpSceneId;
 };
 
 export function getImageProviderName(): ImageProviderName {
   // Reserved for future A/B testing of an alternate provider. For now
-  // every caller lands on fal.ai's Flux Pro v1.1.
+  // every caller lands on fal.ai's Flux Pro Kontext.
   return "fal";
 }
 
@@ -39,7 +40,8 @@ export function shouldRunRemoveBackground(scene: MvpSceneId, hasRemoveBgKey: boo
 /**
  * End-to-end product image pipeline:
  *   1. (optional) Run Remove.bg on each reference image to isolate the product
- *   2. Run Flux Pro v1.1 with the cutout URLs and a scene-specific prompt
+ *   2. Run Flux Pro Kontext with the cutout URLs and a scene-specific prompt
+ *      — resolution is picked from the user's qualityTier
  *   3. Return the generated output URLs
  */
 export async function generateProductImages(input: GenerateProductImagesInput) {
@@ -50,6 +52,7 @@ export async function generateProductImages(input: GenerateProductImagesInput) {
     imageUrls: cutoutUrls,
     metadata: input.metadata,
     outputCount: input.outputCount,
+    qualityTier: input.qualityTier,
     scene: input.scene,
   });
 }

@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       imageUrls: inputImageUrls,
       metadata,
       outputCount: form.outputCount,
+      qualityTier: appUser.quality_tier,
       scene: form.scene,
     });
 

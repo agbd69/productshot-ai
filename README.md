@@ -8,8 +8,8 @@
 - **Frontend / API**: Next.js 16 (App Router) + React 19
 - **Auth**: Clerk
 - **Database**: Supabase (Postgres + Storage)
-- **Image generation**: fal.ai (`fal-ai/flux-pro/v1.1`) with optional Remove.bg upstream isolation
-- **Billing**: Stripe (subscriptions + one-time credit packs)
+- **Image generation**: fal.ai (`fal-ai/flux-pro/kontext`, BFL FLUX.1 Kontext [pro]) with optional Remove.bg upstream isolation
+- **Billing**: Stripe (one-time credit packs, no subscription)
 - **Tests**: Vitest
 
 ## Architecture
@@ -18,12 +18,12 @@
 [User uploads 1-6 product images]
   → /api/generate
     → uploadReferenceImage()             // Supabase Storage
-    → spendCredits()                     // monthly-refill aware
+    → spendCredits()                     // one-time credits, never expire
     → createGenerationRecord()
     → generateProductImages():
         if (white-bg / detail-page) and REMOVE_BG_KEY set:
           removeBackgroundFromUrl()      // optional isolation pass
-        → generateProductImagesWithFal() // Flux Pro v1.1
+        → generateProductImagesWithFal() // Flux Pro Kontext (resolution from quality_tier)
     → updateGenerationRecord()
     → redirect /generations/{id}
 ```
@@ -38,14 +38,25 @@
 | `model-wearing` | AI model | 12 | Apparel / footwear / accessories. Most expensive. |
 | `detail-page` | Multi-angle detail | 10 | Front / 45° / side / back / top-down / close-up. Triggers Remove.bg. |
 
-## Pricing
+## Pricing — pure credit packs (no subscription)
 
-| Plan | Price | Monthly credits | Features |
-| --- | --- | --- | --- |
-| **Free** | $0 | 30 | All 5 scenes, standard resolution |
-| **Pro** | $12.50 / month | 200 | HD + priority queue + cross-platform export |
-| **Team** | $588 / year | 2000 | Team workspace + dedicated support |
-| **Starter pack** (one-time) | $9.90 | 30 | Try before subscribing |
+| Pack | Price | Credits (incl. bonus) | Output | Per credit |
+| --- | --- | --- | --- | --- |
+| **Free** (signup) | $0 | 30 | 1024px | — |
+| **Starter** | $30 | 300 | 1024px | $0.100 |
+| **Pro** | $99 | 1500 + 50 | 2048px | $0.064 |
+| **Business** | $199 | 3500 + 100 | 4K (2k Kontext) | $0.055 |
+| **Agency** | $399 | 8000 + 200 | 4K + API | $0.049 |
+
+Why no subscription: B2B merchants buy in project-sized lumps (Black Friday / Christmas prep), not monthly. Credit packs eliminate monthly churn, prevent account sharing (min $30 entry), and front-load cash flow. Tiers only go up — credits never expire.
+
+### Tier → model resolution routing
+
+`users.quality_tier` (set by the highest pack ever bought) drives the fal.ai call's `resolution` field:
+- `standard` → Kontext 1K (1024px, $0.07/image)
+- `pro` → Kontext 1K (2048px via aspect crop, $0.07/image)
+- `business` → Kontext 2K (2048px native, $0.14/image)
+- `agency` → Kontext 2K + public API access ($0.14/image)
 
 ## Local development
 
