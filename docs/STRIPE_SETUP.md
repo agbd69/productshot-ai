@@ -4,24 +4,35 @@ One-time setup. After this, the credit-pack checkout works in dev and prod.
 
 ## Current config (test mode, 2026-07-28)
 
+Stripe account: `acct_1TtoFj4ml4iwUeLv` (test mode).
+The `.env.local` `STRIPE_SECRET_KEY` belongs to this account, so the prices
+below resolve correctly.
+
 | Pack | Price ID | Product ID | Notes |
 |------|----------|------------|-------|
-| Starter | `price_1TyAPtRkB81Hwr9ZCnOGar5D` | `prod_Uy6dUDfNd8XcDP` | $30 / 300 credits / 1024px |
-| Pro | `price_1TyAQBRkB81Hwr9Z1u5ykjji` | `prod_Uy6dZALO7yTXDA` | $99 / 1550 credits / 2048px |
-| Business | `price_1TyAQQRkB81Hwr9ZBsU7rIyS` | `prod_Uy6dTbOfFx64kc` | $199 / 3600 credits / 4K |
-| Agency | `price_1TyAQiRkB81Hwr9ZHTgZgYbw` | `prod_Uy6daPDfq6vcjM` | $399 / 8200 credits / 4K + API |
+| Starter | `price_1TyBON4ml4iwUeLvh5WfpATv` | `prod_Uy7dJvMwoUaTo8` | $30 / 300 credits / 1024px |
+| Pro | `price_1TyBOP4ml4iwUeLvho7gQj8k` | `prod_Uy7dLSGnJIqObN` | $99 / 1550 credits / 2048px |
+| Business | `price_1TyBOQ4ml4iwUeLvv8eVQosv` | `prod_Uy7d7QsuKbEEa7` | $199 / 3600 credits / 4K |
+| Agency | `price_1TyBOS4ml4iwUeLvevJRaKfM` | `prod_Uy7dfQSjpf4SN4` | $399 / 8200 credits / 4K + API |
 
 These are **test mode** (`sk_test_` keys) — safe to commit. When you switch to Live mode you'll get a fresh set starting with `price_1LIVExxx`.
+
+**Heads up on account mismatch**: Stripe IDs embed the account they're
+created in (e.g. `price_1TyBO54ml4iwUeLv...` belongs to `acct_1TtoFj4ml4iwUeLv`).
+The `STRIPE_SECRET_KEY` in `.env.local` is also account-scoped, so the
+4 price IDs MUST be from the same account as the secret key. If you ever
+create products in a different Stripe account, checkout will fail with
+`No such price`.
 
 ## Local dev setup
 
 Add to `.env.local` (this file is gitignored):
 
 ```bash
-STRIPE_STARTER_PRICE_ID=price_1TyAPtRkB81Hwr9ZCnOGar5D
-STRIPE_PRO_PACK_PRICE_ID=price_1TyAQBRkB81Hwr9Z1u5ykjji
-STRIPE_BUSINESS_PRICE_ID=price_1TyAQQRkB81Hwr9ZBsU7rIyS
-STRIPE_AGENCY_PRICE_ID=price_1TyAQiRkB81Hwr9ZHTgZgYbw
+STRIPE_STARTER_PRICE_ID=price_1TyBON4ml4iwUeLvh5WfpATv
+STRIPE_PRO_PACK_PRICE_ID=price_1TyBOP4ml4iwUeLvho7gQj8k
+STRIPE_BUSINESS_PRICE_ID=price_1TyBOQ4ml4iwUeLvv8eVQosv
+STRIPE_AGENCY_PRICE_ID=price_1TyBOS4ml4iwUeLvevJRaKfM
 ```
 
 Plus the always-needed:
